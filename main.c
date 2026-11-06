@@ -1,6 +1,8 @@
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -10,6 +12,11 @@
 #define INVENTORY_SIZE 10
 #define MAX_ITEMS 10
 #define MAX_NAME_LEN 32
+
+#define MIN_MAP_SIZE 5
+#define MAX_MAP_SIZE 30
+#define MIN_CAVE_SIZE 5
+#define MAX_CAVE_SIZE 8
 
 int inventory[INVENTORY_SIZE];
 char item_names[MAX_ITEMS][MAX_NAME_LEN];
@@ -86,6 +93,7 @@ void print_menu() {
     printf("[7] Поиск предмета в рюкзаке по названию\n");
     printf("[8] Записать состояние в дневник фермера (diary.txt)\n");
     printf("[9] Расшифровать старые записи (Вариант 4)\n");
+    printf("[10] Отправиться в приключение\n");
 }
 
 void show_time() {
@@ -168,7 +176,7 @@ void search_item_by_name() {
     char target_name[MAX_NAME_LEN];
     printf("Введите название предмета для поиска: ");
 
-    while (getchar() != '\n'); // чистим Enter после ввода цифры в меню
+    while (getchar() != '\n');
 
     if (fgets(target_name, sizeof(target_name), stdin) != NULL) {
         int len = strlen(target_name);
@@ -242,31 +250,25 @@ void process_npc_dialogue_template() {
     char line[256];
     printf("\n=== ТЕКСТ ПИСЬМА (output.txt) ===\n");
 
-    // Читаем файл построчно
     while (fgets(line, sizeof(line), input_file) != NULL) {
         int len = strlen(line);
 
-        // Идем по каждому символу строки обычным циклом
         for (int i = 0; i < len; i++) {
-            // Если встретили <NAME> (6 символов)
             if (line[i] == '<' && line[i + 1] == 'N' && line[i + 2] == 'A' && line[i + 3] == 'M' && line[i + 4] == 'E' && line[i + 5] == '>') {
                 printf("%s", farmer_name);
                 fprintf(output_file, "%s", farmer_name);
-                i += 5; // перешагиваем оставшиеся 5 букв тега
+                i += 5;
             }
-            // Если встретили <DAY> (5 символов)
             else if (line[i] == '<' && line[i + 1] == 'D' && line[i + 2] == 'A' && line[i + 3] == 'Y' && line[i + 4] == '>') {
                 printf("%d", current_day);
                 fprintf(output_file, "%d", current_day);
-                i += 4; // перешагиваем оставшиеся 4 буквы тега
+                i += 4;
             }
-            // Если встретили <ITEM> (6 символов)
             else if (line[i] == '<' && line[i + 1] == 'I' && line[i + 2] == 'T' && line[i + 3] == 'E' && line[i + 4] == 'M' && line[i + 5] == '>') {
                 printf("%s", get_item_name(inventory[0]));
                 fprintf(output_file, "%s", get_item_name(inventory[0]));
-                i += 5; // перешагиваем оставшиеся 5 букв тега
+                i += 5;
             }
-            // Если это обычная буква, просто печатаем её одну (%c)
             else {
                 printf("%c", line[i]);
                 fprintf(output_file, "%c", line[i]);
@@ -279,11 +281,249 @@ void process_npc_dialogue_template() {
     printf("\nГотово! Результат записан в output.txt.\n");
 }
 
+char** allocate_map(int height, int width) {
+    char** map = (char**)malloc(height * sizeof(char*));
+    if (map == NULL) {
+        return NULL;
+    }
+    for (int i = 0; i < height; ++i) {
+        map[i] = (char*)malloc(width * sizeof(char));
+        if (map[i] == NULL) {
+            for (int j = 0; j < i; ++j) {
+                free(map[j]);
+            }
+            free(map);
+            return NULL;
+        }
+    }
+    return map;
+}
+
+void free_map(char** map, int height) {
+    if (map == NULL) {
+        return;
+    }
+    for (int i = 0; i < height; ++i) {
+        free(map[i]);
+    }
+    free(map);
+}
+
+void print_map(char** map, int height, int width, int player_y, int player_x) {
+    for (int y = 0; y < height; ++y) {
+        for (int x = 0; x < width; ++x) {
+            if (y == player_y && x == player_x) {
+                printf("@ ");
+            }
+            else {
+                printf("%c ", map[y][x]);
+            }
+        }
+        printf("\n");
+    }
+}
+
+void generate_forest_map(char*** map_ptr, int* height_ptr, int* width_ptr, int* player_y, int* player_x) {
+    if (*map_ptr != NULL) {
+        free_map(*map_ptr, *height_ptr);
+        *map_ptr = NULL;
+    }
+
+    int h = MIN_MAP_SIZE + rand() % (MAX_MAP_SIZE - MIN_MAP_SIZE + 1);
+    int w = MIN_MAP_SIZE + rand() % (MAX_MAP_SIZE - MIN_MAP_SIZE + 1);
+    *height_ptr = h;
+    *width_ptr = w;
+
+    *map_ptr = allocate_map(h, w);
+    if (*map_ptr == NULL) {
+        printf("Ошибка выделения памяти под карту леса!\n");
+        return;
+    }
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            if (y == 0 || y == h - 1 || x == 0 || x == w - 1) {
+                (*map_ptr)[y][x] = '#';
+            }
+            else {
+                int roll = rand() % 100;
+                if (roll < 12) {
+                    (*map_ptr)[y][x] = 'T';
+                }
+                else if (roll < 22) {
+                    (*map_ptr)[y][x] = 'R';
+                }
+                else {
+                    (*map_ptr)[y][x] = '.';
+                }
+            }
+        }
+    }
+
+    int camp_y = 1 + rand() % (h - 2);
+    int camp_x = 1 + rand() % (w - 2);
+    (*map_ptr)[camp_y][camp_x] = '^';
+
+    *player_y = camp_y;
+    *player_x = camp_x;
+
+    int cave_y = 1 + rand() % (h - 2);
+    int cave_x = 1 + rand() % (w - 2);
+    while (cave_y == camp_y && cave_x == camp_x) {
+        cave_y = 1 + rand() % (h - 2);
+        cave_x = 1 + rand() % (w - 2);
+    }
+    (*map_ptr)[cave_y][cave_x] = 'O';
+}
+
+void generate_cave_map(char*** map_ptr, int* height_ptr, int* width_ptr, int* player_y, int* player_x) {
+    if (*map_ptr != NULL) {
+        free_map(*map_ptr, *height_ptr);
+        *map_ptr = NULL;
+    }
+
+    int h = MIN_CAVE_SIZE + rand() % (MAX_CAVE_SIZE - MIN_CAVE_SIZE + 1);
+    int w = MIN_CAVE_SIZE + rand() % (MAX_CAVE_SIZE - MIN_CAVE_SIZE + 1);
+    *height_ptr = h;
+    *width_ptr = w;
+
+    *map_ptr = allocate_map(h, w);
+    if (*map_ptr == NULL) {
+        printf("Ошибка выделения памяти под карту пещеры!\n");
+        return;
+    }
+
+    for (int y = 0; y < h; ++y) {
+        for (int x = 0; x < w; ++x) {
+            if (y == 0 || y == h - 1 || x == 0 || x == w - 1) {
+                (*map_ptr)[y][x] = '#';
+            }
+            else {
+                int roll = rand() % 100;
+                if (roll < 25) {
+                    (*map_ptr)[y][x] = 'R';
+                }
+                else {
+                    (*map_ptr)[y][x] = '.';
+                }
+            }
+        }
+    }
+
+    int exit_y = 1 + rand() % (h - 2);
+    int exit_x = 1 + rand() % (w - 2);
+    (*map_ptr)[exit_y][exit_x] = 'E';
+
+    int py = 1 + rand() % (h - 2);
+    int px = 1 + rand() % (w - 2);
+    while (py == exit_y && px == exit_x) {
+        py = 1 + rand() % (h - 2);
+        px = 1 + rand() % (w - 2);
+    }
+    (*map_ptr)[py][px] = '.';
+    *player_y = py;
+    *player_x = px;
+}
+
+void adventure_mode() {
+    char** map = NULL;
+    int height = 0;
+    int width = 0;
+    int player_y = 0;
+    int player_x = 0;
+    int in_cave = 0;
+
+    generate_forest_map(&map, &height, &width, &player_y, &player_x);
+    if (map == NULL) {
+        return;
+    }
+
+    printf("\nВы отправились в приключение в Лес!\n");
+
+    while (1) {
+        printf("\n");
+        if (in_cave) {
+            printf("Локация: Пещера (Выход: E)\n");
+        }
+        else {
+            printf("Локация: Лес (Костёр: ^, Пещера: O)\n");
+        }
+
+        print_map(map, height, width, player_y, player_x);
+
+        printf("Управление: W - вверх, A - влево, S - вниз, D - вправо, Q - сбежать домой: ");
+        char command;
+        while (scanf_s(" %c", &command, 1) != 1);
+
+        if (command == 'q' || command == 'Q') {
+            if (!in_cave && map[player_y][player_x] == '^') {
+                printf("Вы безопасно вернулись домой из лагеря.\n");
+                break;
+            }
+            else if (in_cave) {
+                printf("Нельзя сбежать домой прямо из пещеры! Найдите выход (E).\n");
+                continue;
+            }
+            else {
+                printf("Сбежать домой можно только стоя на клетке лагеря (^).\n");
+                continue;
+            }
+        }
+
+        int target_y = player_y;
+        int target_x = player_x;
+
+        if (command == 'w' || command == 'W') target_y--;
+        else if (command == 's' || command == 'S') target_y++;
+        else if (command == 'a' || command == 'A') target_x--;
+        else if (command == 'd' || command == 'D') target_x++;
+        else {
+            printf("Неизвестная команда!\n");
+            continue;
+        }
+
+        if (target_y < 0 || target_y >= height || target_x < 0 || target_x >= width) {
+            printf("Там непроходимая глушь!\n");
+            continue;
+        }
+
+        char cell = map[target_y][target_x];
+        if (cell == '#' || cell == 'T' || cell == 'R') {
+            printf("Путь заблокирован препятствием!\n");
+            continue;
+        }
+
+        player_y = target_y;
+        player_x = target_x;
+
+        if (!in_cave && cell == 'O') {
+            printf("\nВы спустились во тьму пещеры...\n");
+            generate_cave_map(&map, &height, &width, &player_y, &player_x);
+            if (map == NULL) {
+                return;
+            }
+            in_cave = 1;
+        }
+        else if (in_cave && cell == 'E') {
+            printf("\nВы выбрались из пещеры обратно в лес!\n");
+            generate_forest_map(&map, &height, &width, &player_y, &player_x);
+            if (map == NULL) {
+                return;
+            }
+            in_cave = 0;
+        }
+    }
+
+    free_map(map, height);
+}
+
 int main() {
 #ifdef _WIN32
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 #endif
+
+    srand((unsigned int)time(NULL));
 
     input_farmer_name();
     load_items();
@@ -330,8 +570,11 @@ int main() {
         case 9:
             process_npc_dialogue_template();
             break;
+        case 10:
+            adventure_mode();
+            break;
         default:
-            printf("Неизвестный пункт меню! Введите число от 0 до 9.\n");
+            printf("Неизвестный пункт меню! Введите число от 0 до 10.\n");
             break;
         }
     }
